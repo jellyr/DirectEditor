@@ -11,6 +11,8 @@
 #include <d2d1.h>
 #include <dwrite.h>
 
+#include <functional>
+
 #pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "d2d1.lib")
 
@@ -58,6 +60,19 @@ enum class BackgroundMode
 	TextHeightWithLineGap,
 	LineHeight
 };
+
+enum class UnderlineType
+{
+	None = 0,
+	Single = 1,
+	Double = 2,
+	Triple = 3,
+	Squiggly = 4
+
+
+};
+
+
 class CharacterFormatSpecifier : IUnknown
 {
 
@@ -97,8 +112,89 @@ class CharacterFormatSpecifier : IUnknown
 		return hr;
 	}
 
+	void GetBackgroundBrush(BackgroundMode * pMode, ID2D1Brush **pBrush)
+	{
+		*pMode = m_backgroundMode;
+		*pBrush = m_backgroundBrush;
+	}
+
+	static HRESULT SetFormatting(
+		IDWriteTextLayout * textLayout,
+		DWRITE_TEXT_RANGE textRange,
+		std::function<void(CharacterFormatSpecifier*)> setField)
+	{
+
+		const UINT32 endPosition = textRange.startPosition + textRange.length;
+		UINT32 currentPosition = textRange.startPosition;
+
+		while (currentPosition < endPosition)
+		{
+			CharacterFormatSpecifier * specifier = nullptr;
+			DWRITE_TEXT_RANGE queryTextRange;
+			HRESULT hr;
+
+			hr = textLayout->GetDrawingEffect(currentPosition,
+				(IUnknown **)& specifier,
+				&queryTextRange);
+			if (S_OK != hr)
+			{
+				return hr;
+			}
+
+			if (specifier == nullptr)
+			{
+				specifier = new CharacterFormatSpecifier();
+			}
+			else
+			{
+				specifier = specifier->Clone();
+			}
+
+			setField(specifier);
+
+
+
+		}
+
+
+		return S_OK;
+	}
+	CharacterFormatSpecifier* Clone()
+	{
+		CharacterFormatSpecifier * specifier = new CharacterFormatSpecifier();
+
+		specifier->m_backgroundBrush = this->m_backgroundBrush;
+		specifier->m_backgroundMode = this->m_backgroundMode;
+
+		specifier->m_underlineBrush = this->m_underlineBrush;
+		specifier->m_underlineType = this->m_underlineType;
+		return specifier;
+	}
+
+	static HRESULT SetBackgroundBrush(IDWriteTextLayout * textLayout,
+		BackgroundMode backgroundMode,
+		ID2D1Brush* brush,
+		DWRITE_TEXT_RANGE textRange)
+	{
+		return SetFormatting(textLayout,
+			textRange, 
+			[backgroundMode, brush](CharacterFormatSpecifier * specifier)
+		{
+			specifier->m_backgroundBrush = brush;
+			specifier->m_backgroundMode = backgroundMode;
+		});
+	}
+	
 private:
 	LONG m_refCount;
+	
+	BackgroundMode  m_backgroundMode;
+	ID2D1Brush *    m_backgroundBrush;
+
+	UnderlineType  m_underlineType;
+	ID2D1Brush *    m_underlineBrush;
+
+
 
 };
 
