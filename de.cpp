@@ -39,6 +39,11 @@ LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 
+void msg(TCHAR * s)
+{
+	::MessageBox(0, s, 0, 0);
+}
+
 
 struct DrawingContext
 {
@@ -75,6 +80,7 @@ enum class UnderlineType
 
 class CharacterFormatSpecifier : IUnknown
 {
+public:
 
 	virtual ULONG STDMETHODCALLTYPE AddRef() override
 	{
@@ -152,6 +158,22 @@ class CharacterFormatSpecifier : IUnknown
 
 			setField(specifier);
 
+			UINT32 queryEndPos = queryTextRange.startPosition + queryTextRange.length;
+
+			UINT32 setLength = min(endPosition, queryEndPos) - currentPosition;
+
+			DWRITE_TEXT_RANGE setTextRange;
+			setTextRange.startPosition = currentPosition;
+			setTextRange.length = setLength;
+
+			hr = textLayout->SetDrawingEffect((IUnknown *)specifier, setTextRange);
+
+			if (hr != S_OK)
+			{
+				msg(_T("fail to set textLayout->SetDrawingEffect((IUnknown *)specifier, setTextRange);"));
+			}
+
+			currentPosition = currentPosition + setLength;
 
 
 		}
@@ -214,10 +236,23 @@ class TCustomRender : public IDWriteTextRenderer
 		// Get brush
 		ID2D1Brush * brush = drawingContext->defaultBrush;
 
+
+
 		if (clientDrawingEffect != nullptr)
 		{
-			brush = static_cast<ID2D1Brush *>(clientDrawingEffect);
+			void * pInterface;
+
+			if (S_OK == clientDrawingEffect->QueryInterface(__uuidof(ID2D1Brush), &pInterface))
+			{
+				brush = static_cast<ID2D1Brush *>(pInterface);
+			}
 		}
+
+
+		//if (clientDrawingEffect != nullptr)
+		//{
+		//	brush = static_cast<ID2D1Brush *>(clientDrawingEffect);
+		//}
 
 		D2D1_RECT_F rect = D2D1::RectF(x, y, x + width, y + thickness);
 		drawingContext->renderTarget->FillRectangle(&rect, brush);
@@ -300,10 +335,6 @@ public:
 		}
 
 
-
-		
-
-
 		return hr;
 	}
 
@@ -363,10 +394,6 @@ public:
 	{
 		if (clientDrawingContext == nullptr)
 		{
-
-			DrawingContext * drawingContext =
-				static_cast<DrawingContext *>(clientDrawingContext);
-
 			float dpiX, dpiY;
 			m_renderTarget->GetDpi(&dpiX, &dpiY);
 			*pixelsPerDip = dpiX / 96;
@@ -391,7 +418,15 @@ public:
 		_Out_ DWRITE_MATRIX * transform) override
 	{
 		if (clientDrawingContext == nullptr)
+		{
+			if (m_renderTarget)
+			{
+				m_renderTarget->GetTransform((D2D1_MATRIX_3X2_F *)transform);
+				return S_OK;
+			}
 			return E_NOTIMPL;
+		}
+			
 		DrawingContext * drawingContext =
 			static_cast<DrawingContext *>(clientDrawingContext);
 
@@ -411,6 +446,28 @@ public:
 	{
 		if (clientDrawingContext == nullptr)
 		{
+
+			if (m_renderTarget)
+			{
+				ID2D1Brush * foregroundBrush = m_defaultBrush;
+				switch (m_renderPass)
+				{
+				case TCustomRender::RenderPass::Initial:
+					break;
+				case TCustomRender::RenderPass::Main:
+					m_renderTarget->DrawGlyphRun(D2D1::Point2F(baselineOriginX,
+						baselineOriginY), glyphRun, foregroundBrush, measuringMode);
+					break;
+				case TCustomRender::RenderPass::Final:
+					break;
+				default:
+					break;
+				}
+
+				
+
+			}
+
 			if (clientDrawingEffect)
 			{
 				CharacterFormatSpecifier * specifier = nullptr;
@@ -422,12 +479,11 @@ public:
 					if (specifier)
 					{
 						ID2D1Brush * backgroundBrush = nullptr;
-						ID2D1Brush * foregroundBrush = m_defaultBrush;
+						
 
 						ID2D1Brush * highlightBrush = nullptr;
 
 						BackgroundMode backgroundMode = BackgroundMode::TextHeight;
-
 
 						//specifier->GetBackgroundBrush(&backgroundMode, &backgroundBrush);
 
@@ -445,25 +501,44 @@ public:
 			}
 			return S_OK;
 		}
-		
-
-
-		DrawingContext * drawingContext =
-			static_cast<DrawingContext *>(clientDrawingContext);
-
-		ID2D1RenderTarget * renderTarget = drawingContext->renderTarget;
-
-		// Get brush
-		ID2D1Brush * brush = drawingContext->defaultBrush;
-
-		if (clientDrawingEffect != nullptr)
+		else
 		{
-			brush = static_cast<ID2D1Brush *>(clientDrawingEffect);
+			DrawingContext * drawingContext =
+				static_cast<DrawingContext *>(clientDrawingContext);
+
+			ID2D1RenderTarget * renderTarget = drawingContext->renderTarget;
+
+			// Get brush
+			ID2D1Brush * brush = drawingContext->defaultBrush;
+
+			if (clientDrawingEffect != nullptr)
+			{
+				void * pInterface;
+
+				if (S_OK == clientDrawingEffect->QueryInterface(__uuidof(ID2D1Brush), &pInterface))
+				{
+					brush = static_cast<ID2D1Brush *>(pInterface);
+				}
+			}
+
+
+
+					
+
+
+
+
+
+
+
+
+			renderTarget->DrawGlyphRun(D2D1::Point2F(baselineOriginX, baselineOriginY),
+				glyphRun, brush, measuringMode);
+			return S_OK;
 		}
 
-		renderTarget->DrawGlyphRun(D2D1::Point2F(baselineOriginX, baselineOriginY),
-			glyphRun, brush, measuringMode);
-		return S_OK;
+
+
 	}
 
 	virtual HRESULT STDMETHODCALLTYPE DrawUnderline(void * clientDrawingContext,
@@ -472,6 +547,7 @@ public:
 		_In_ const DWRITE_UNDERLINE * underline,
 		IUnknown * clientDrawingEffect) override
 	{
+
 
 		if (clientDrawingContext == nullptr)
 			return E_NOTIMPL;
@@ -546,10 +622,7 @@ public:
 };
 
 
-void msg(TCHAR * s)
-{
-	::MessageBox(0, s, 0, 0);
-}
+
 
 template <class T> inline void SafeRelease(T **ppT)
 {
@@ -575,6 +648,9 @@ ID2D1SolidColorBrush * pTextBrush = nullptr;
 
 ID2D1SolidColorBrush * m_blackBrush = nullptr;
 
+ID2D1SolidColorBrush * m_whiteBrush = nullptr;
+
+
 ID2D1SolidColorBrush * redBrush = nullptr;
 
 ID2D1SolidColorBrush * greenBrush = nullptr;
@@ -582,6 +658,8 @@ ID2D1SolidColorBrush * greenBrush = nullptr;
 ID2D1SolidColorBrush * blueBrush = nullptr;
 
 ID2D1SolidColorBrush * m_overlayBrush = nullptr;
+
+ID2D1SolidColorBrush * magentaBrush = nullptr;
 
 
 void CreateDeviceDependentResources()
@@ -613,6 +691,19 @@ void CreateDeviceDependentResources()
 		{
 			SafeRelease(&m_overlayBrush);
 		}
+		if (magentaBrush)
+		{
+			SafeRelease(&magentaBrush);
+		}
+		if (m_whiteBrush)
+		{
+			SafeRelease(&magentaBrush);
+		}
+		if (m_blackBrush)
+		{
+			SafeRelease(&magentaBrush);
+		}
+		
 
 		HRESULT hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(RGB(255, 255, 255)), &pTextBrush);
 
@@ -621,12 +712,24 @@ void CreateDeviceDependentResources()
 			throw _T("CreateSolidColorBrush pTextBrush error!");
 		}
 
+		hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Magenta), &magentaBrush);
+		if (FAILED(hr))
+		{
+			throw _T("CreateSolidColorBrush magentaBrush error!");
+		}
 
 		hr =  pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &m_blackBrush);
 		if (FAILED(hr))
 		{
 			throw _T("CreateSolidColorBrush m_blackBrush error!");
 		}
+
+		hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White), &m_whiteBrush);
+		if (FAILED(hr))
+		{
+			throw _T("CreateSolidColorBrush m_whiteBrush error!");
+		}
+		
 
 		hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 0, 0, 0.5f), &m_overlayBrush);
 		if (FAILED(hr))
@@ -831,7 +934,16 @@ HRESULT CreateTextLayouts()
 		}
 
 
-		
+		//  magentaBrush
+		strFind = L"IDWriteTextFormat and IDWriteTextLayout";
+
+		textRange.startPosition = m_text.find(strFind.data());
+		textRange.length = strFind.length();
+
+			CharacterFormatSpecifier::SetBackgroundBrush(g_pTextLayout,
+		BackgroundMode::LineHeight,
+			magentaBrush,
+			textRange);
 
 
 
@@ -936,11 +1048,19 @@ void onPaint()
 	else if (drawcount % modc == 3)
 	{
 		D2D1_POINT_2F origin = D2D1::Point2F(0.f, 0.f);
-		customRender.customDraw(pRenderTarget, g_pTextLayout, origin, m_blackBrush);
+		customRender.customDraw(pRenderTarget, g_pTextLayout, origin, m_whiteBrush);
 
 
 	}
 
+
+	//DrawingContext drawingContext(pRenderTarget, m_overlayBrush);
+
+	//D2D1_POINT_2F origin = D2D1::Point2F(0.f, 0.f);
+
+	//g_pTextLayout->Draw(&drawingContext,
+	//	&customRender,
+	//	origin.x, origin.y);
 	pRenderTarget->EndDraw();
 }
 
