@@ -211,10 +211,10 @@ private:
 	LONG m_refCount;
 	
 	BackgroundMode  m_backgroundMode;
-	ID2D1Brush *    m_backgroundBrush;
+	ID2D1Brush *    m_backgroundBrush{ nullptr };
 
 	UnderlineType  m_underlineType;
-	ID2D1Brush *    m_underlineBrush;
+	ID2D1Brush *    m_underlineBrush{ nullptr };
 
 
 
@@ -444,15 +444,75 @@ public:
 		_In_ const DWRITE_GLYPH_RUN_DESCRIPTION * glyphRunDescription,
 		IUnknown * clientDrawingEffect) override
 	{
+
+
+
+
+
+
+
 		if (clientDrawingContext == nullptr)
 		{
+			DWRITE_LINE_METRICS lineMetrics;
+			if (m_lineIndex < m_lineMetrics.size())
+			{
+				lineMetrics = m_lineMetrics.at(m_lineIndex);
+				m_charIndex = m_charIndex + glyphRunDescription->stringLength;
+				if (m_charIndex == lineMetrics.length)
+				{
+					m_lineIndex++;
+					m_charIndex = 0;
+				}
+			}
+
+			ID2D1Brush * backgroundBrush = nullptr;
+
+			BackgroundMode backgroundMode = BackgroundMode::TextHeight;
+
+			ID2D1Brush * highlightBrush = nullptr;
+
+
+			
+			if (clientDrawingEffect)
+			{
+				CharacterFormatSpecifier * specifier = nullptr;
+
+				void * pInterface;
+				void * pInterface2;
+				HRESULT hr1, hr2;
+				hr1 = clientDrawingEffect->QueryInterface(__uuidof(IUnknown), &pInterface);
+
+				hr2 = clientDrawingEffect->QueryInterface(__uuidof(ID2D1Brush), &pInterface2);
+
+				if (S_OK == hr1  && S_OK != hr2)
+				{
+					specifier = (CharacterFormatSpecifier *)pInterface;
+					if (specifier)
+					{
+						specifier->GetBackgroundBrush(&backgroundMode, &backgroundBrush);
+					}
+				}
+			}
+
 
 			if (m_renderTarget)
 			{
 				ID2D1Brush * foregroundBrush = m_defaultBrush;
+
+				//m_renderTarget->DrawGlyphRun(D2D1::Point2F(baselineOriginX,
+				//	baselineOriginY), glyphRun, foregroundBrush, measuringMode);
+				
 				switch (m_renderPass)
 				{
 				case TCustomRender::RenderPass::Initial:
+					if (backgroundBrush != nullptr)
+					{
+						D2D1_RECT_F rect = GetRectangle(glyphRun, &lineMetrics, baselineOriginX,
+							baselineOriginY, backgroundMode);
+
+						//m_renderTarget->FillRectangle(rect, foregroundBrush);
+						m_renderTarget->FillRectangle(rect, backgroundBrush);
+					}
 					break;
 				case TCustomRender::RenderPass::Main:
 					m_renderTarget->DrawGlyphRun(D2D1::Point2F(baselineOriginX,
@@ -464,40 +524,8 @@ public:
 					break;
 				}
 
-				
 
-			}
 
-			if (clientDrawingEffect)
-			{
-				CharacterFormatSpecifier * specifier = nullptr;
-
-				void * pInterface;
-				if (S_OK == clientDrawingEffect->QueryInterface(__uuidof(IUnknown), &pInterface))
-				{
-					specifier = (CharacterFormatSpecifier *)pInterface;
-					if (specifier)
-					{
-						ID2D1Brush * backgroundBrush = nullptr;
-						
-
-						ID2D1Brush * highlightBrush = nullptr;
-
-						BackgroundMode backgroundMode = BackgroundMode::TextHeight;
-
-						//specifier->GetBackgroundBrush(&backgroundMode, &backgroundBrush);
-
-						//ID2D1Brush * brush = specifier->GetForegroundBrush();
-
-						//if (brush != nullptr)
-						//{
-						//	foregroundBrush = brush;
-						//}
-
-						//highlightBrush = specifier->GetHighlight();
-
-					}
-				}
 			}
 			return S_OK;
 		}
@@ -521,17 +549,6 @@ public:
 				}
 			}
 
-
-
-					
-
-
-
-
-
-
-
-
 			renderTarget->DrawGlyphRun(D2D1::Point2F(baselineOriginX, baselineOriginY),
 				glyphRun, brush, measuringMode);
 			return S_OK;
@@ -540,6 +557,57 @@ public:
 
 
 	}
+
+	D2D1_RECT_F GetRectangle(const DWRITE_GLYPH_RUN * glyphRun,
+		                                              const DWRITE_LINE_METRICS * lineMetrics,
+		                                              FLOAT baselineOriginX,
+		                                              FLOAT baselineOriginY,
+		                                              BackgroundMode backgroundMode)
+		 {
+		     // Get width of text 
+			     float totalWidth = 0;
+		
+
+			     for (UINT32 index = 0; index < glyphRun->glyphCount; index++)
+			     {
+			         totalWidth += glyphRun->glyphAdvances[index];
+			     }
+		
+
+			     // Get height of text 
+			     float ascent;
+		     float descent;
+		
+
+			     if (backgroundMode == BackgroundMode::LineHeight)
+			     {
+			         ascent = lineMetrics->baseline;
+			         descent = lineMetrics->height - ascent;
+			     }
+		     else
+			     {
+			         DWRITE_FONT_METRICS fontMetrics;
+			         glyphRun->fontFace->GetMetrics(&fontMetrics);
+			         float adjust = glyphRun->fontEmSize / fontMetrics.designUnitsPerEm;
+			         ascent = adjust * fontMetrics.ascent;
+			         descent = adjust * fontMetrics.descent;
+			
+
+				         if (backgroundMode == BackgroundMode::TextHeightWithLineGap)
+				         {
+				             descent += adjust * fontMetrics.lineGap;
+				         }
+			     }
+		
+
+			     // Create rectangle 
+			     return D2D1::RectF(baselineOriginX,
+				                  baselineOriginY - ascent,
+				                  baselineOriginX + totalWidth,
+				                  baselineOriginY + descent);
+		 }
+
+
 
 	virtual HRESULT STDMETHODCALLTYPE DrawUnderline(void * clientDrawingContext,
 		FLOAT baselineOriginX,
@@ -1018,7 +1086,7 @@ void onPaint()
 	WCHAR * text = L"这个函数的作用是，使得Client的一个矩形区域变得无效，rect结构体可以自己编辑，也可以使用GetClientRcet（）来填充（这里的矩形大小Client的大小），最主要的是第三个参数，第三个参数决定了是否发送WM_ERASEBKGND消息，从而决定了是否擦除Client原有的图形。当然InvalidateRect发送WM_PAINT的形式是一种POST形式（即发送到程序消息队列），而不是像SendMessage一样直接让操作系统带着消息，调用WndProc。一些中文 can show chinese ! جميعها";
 
 	int modc = 4;
-	if (drawcount%modc == 0)
+	/*if (drawcount%modc == 0)
 	{
 		pRenderTarget->DrawText(text, wcslen(text),
 			pDwriteTextFormat,
@@ -1051,7 +1119,11 @@ void onPaint()
 		customRender.customDraw(pRenderTarget, g_pTextLayout, origin, m_whiteBrush);
 
 
-	}
+	}*/
+
+	D2D1_POINT_2F origin = D2D1::Point2F(0.f, 0.f);
+	customRender.customDraw(pRenderTarget, g_pTextLayout, origin, m_whiteBrush);
+
 
 
 	//DrawingContext drawingContext(pRenderTarget, m_overlayBrush);
