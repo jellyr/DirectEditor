@@ -1086,7 +1086,7 @@ void onPaint()
 	WCHAR * text = L"这个函数的作用是，使得Client的一个矩形区域变得无效，rect结构体可以自己编辑，也可以使用GetClientRcet（）来填充（这里的矩形大小Client的大小），最主要的是第三个参数，第三个参数决定了是否发送WM_ERASEBKGND消息，从而决定了是否擦除Client原有的图形。当然InvalidateRect发送WM_PAINT的形式是一种POST形式（即发送到程序消息队列），而不是像SendMessage一样直接让操作系统带着消息，调用WndProc。一些中文 can show chinese ! جميعها";
 
 	int modc = 4;
-	/*if (drawcount%modc == 0)
+	if (drawcount%modc == 0)
 	{
 		pRenderTarget->DrawText(text, wcslen(text),
 			pDwriteTextFormat,
@@ -1119,10 +1119,10 @@ void onPaint()
 		customRender.customDraw(pRenderTarget, g_pTextLayout, origin, m_whiteBrush);
 
 
-	}*/
+	}
 
-	D2D1_POINT_2F origin = D2D1::Point2F(0.f, 0.f);
-	customRender.customDraw(pRenderTarget, g_pTextLayout, origin, m_whiteBrush);
+	//D2D1_POINT_2F origin = D2D1::Point2F(0.f, 0.f);
+	//customRender.customDraw(pRenderTarget, g_pTextLayout, origin, m_whiteBrush);
 
 
 
