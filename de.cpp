@@ -3,6 +3,8 @@
 
 #include "stdafx.h"
 #include "de.h"
+
+#include "windowsx.h"
 #include <string>
 
 #include <vector>
@@ -43,6 +45,41 @@ void msg(TCHAR * s)
 {
 	::MessageBox(0, s, 0, 0);
 }
+
+
+class DPIScale
+{
+public:
+	void Init(ID2D1Factory* pFactory)
+	{
+		FLOAT dpiX, dpiY;
+		pFactory->GetDesktopDpi(&dpiX, &dpiY);
+		dpiScaleReciprocalX = 96.0f / dpiX;
+		dpiScaleReciprocalY = 96.0f / dpiY;
+	}
+
+	template<typename T> float PixelsToDipsX(T x)
+	{
+		return static_cast<float>(x)*dpiScaleReciprocalX;
+	}
+	template<typename T> float PixelsToDipsY(T y)
+	{
+		return static_cast<float>(y)*dpiScaleReciprocalY;
+	}
+	template<typename T> float DipsToPixelsX(T x)
+	{
+		return static_cast<float>(x) / dpiScaleReciprocalX;
+	}
+	template<typename T> float DipsToPixelsY(T y)
+	{
+		return static_cast<float>(y) / dpiScaleReciprocalY;
+	}
+private:
+	float dpiScaleReciprocalX = 1.0f;
+	float dpiScaleReciprocalY = 1.0f;
+
+};
+DPIScale dpi;
 
 
 struct DrawingContext
@@ -773,7 +810,7 @@ void CreateDeviceDependentResources()
 		}
 		
 
-		HRESULT hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(RGB(255, 255, 255)), &pTextBrush);
+		HRESULT hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(RGB(122, 0, 122)), &pTextBrush);
 
 		if (FAILED(hr))
 		{
@@ -806,21 +843,21 @@ void CreateDeviceDependentResources()
 		}
 		
 
-		hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(RGB(255, 0, 0)), &blueBrush);
+		hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(RGB(122, 0, 0)), &blueBrush);
 
 		if (FAILED(hr))
 		{
 			throw _T("CreateSolidColorBrush blueBrush error!");
 		}
 
-		hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(RGB(0, 255, 0)), &greenBrush);
+		hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(RGB(0, 122, 0)), &greenBrush);
 
 		if (FAILED(hr))
 		{
 			throw _T("CreateSolidColorBrush greenBrush error!");
 		}
 
-		hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(RGB(0, 0, 255)), &redBrush );
+		hr = pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(RGB(0, 0, 122)), &redBrush );
 
 		if (FAILED(hr))
 		{
@@ -906,32 +943,21 @@ bool InitD2DResource(HWND hwnd)
 //ID2D1SolidColorBrush * pTextBrush = nullptr;
 
 
+std::wstring m_text = L"This paragraph of text rendered with "
+L"DirectWrite is based on "
+L"IDWriteTextFormat and IDWriteTextLayout "
+L"objects and is capable of different "
+L"RBG RGB foreground colors, such as red, "
+L"green, and blue by passing brushes to "
+L"the SetDrawingEffect method."
+L"and using different font sizes and "
+L"redtext greentext bluetext Underline strikethrough";
+
 
 HRESULT CreateTextLayouts()
 {
 	HRESULT hr = S_OK;
 
-	// The text that will be rendered.
-	//WCHAR* pStr = L"Test of formatting: normal, bold, underlined, italic, huge, bold&italic&underlined.\n"
-	//	L"Test of coloring: orange, red, blue.\n"
-	//	L"Test of hit-testing: move your mouse over the third word of this sentence.\n"
-	//	L"Test of word wrapping: this text has some longer lines to test the proper working of the word wrapping feature of DirectWrite. "
-	//	L"To test the correct word wrapping, try to resize this window and verify that this whole piece of text is readable without missing words.\n\n"
-	//	L"The Arabic example below shows that rendering right-to-left languages is not a problem at all. NOTE: I have no idea what that text is saying, "
-	//	L"so do not blame me if it says something wrong.\n\n"
-	//	L"The \"Fancy Typography Rendering\" example below uses some special typographic features of the Grabriola font. "
-	//	L"It also shows how to mix different text alignment for different paragraphs and how to use gradient brushes.\n\n";
-
-
-	std::wstring m_text = L"This paragraph of text rendered with "
-		L"DirectWrite is based on "
-		L"IDWriteTextFormat and IDWriteTextLayout "
-		L"objects and is capable of different "
-		L"RBG RGB foreground colors, such as red, "
-		L"green, and blue by passing brushes to "
-		L"the SetDrawingEffect method."
-		L"and using different font sizes and "
-		L"redtext greentext bluetext Underline strikethrough";
 
 	D2D1_SIZE_F sizeRT = pRenderTarget->GetSize();
 
@@ -1066,7 +1092,12 @@ HRESULT CreateTextLayouts()
 }
 
 TCustomRender customRender;
-int drawcount = 0;
+int drawcount = 1;
+
+size_t cursorPos;
+size_t selectionInitMarker;
+bool drawCaret = true;
+
 
 void onPaint()
 {
@@ -1100,6 +1131,24 @@ void onPaint()
 		pRenderTarget->DrawTextLayout(origin,
 			g_pTextLayout,
 			pTextBrush);
+
+		// draw caret
+		//std::wstring m_text
+		//IDWriteTextLayout *g_pTextLayout
+		if(drawCaret)
+		{ 
+			DWRITE_HIT_TEST_METRICS m;
+			float pointX, pointY;
+			HRESULT hr = g_pTextLayout->HitTestTextPosition(cursorPos, false, &pointX, &pointY, &m)  ;
+			if (hr != S_OK)
+			{
+				msg(_T("draw caret HitTestTextPosition error"));
+			}
+
+			D2D1_POINT_2F p0{ pointX + 1, pointY };
+			D2D1_POINT_2F p1{ pointX + 1, pointY + m.height };
+			pRenderTarget->DrawLine(p0, p1, pTextBrush, 3.0);
+		}
 
 	}
 	else if (drawcount % modc == 2)
@@ -1235,8 +1284,49 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    ShowWindow(hWnd, nCmdShow);
    UpdateWindow(hWnd);
 
+   SetTimer(hWnd, 0, 500, nullptr);
    return TRUE;
 }
+
+
+
+size_t CursorPosAtPoint(FLOAT x, FLOAT y)
+{
+	BOOL isTrailingHit, isInside;
+	DWRITE_HIT_TEST_METRICS m;
+
+	HRESULT hr;
+
+	hr = g_pTextLayout->HitTestPoint(x, y, &isTrailingHit, &isInside, &m) ;
+	if (hr != S_OK)
+	{
+		msg(_T("fail g_pTextLayout->HitTestPoint"));
+	}
+
+	if (isTrailingHit) return m.textPosition + 1;
+
+	return m.textPosition;
+}
+
+
+
+
+//std::wstring m_text
+//IDWriteTextLayout *g_pTextLayout
+void OnClick(UINT x, UINT y)
+{
+	cursorPos = CursorPosAtPoint(dpi.PixelsToDipsX(x), dpi.PixelsToDipsY(y));
+	selectionInitMarker = cursorPos;
+}
+
+
+
+
+
+
+
+
+
 
 //
 //  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
@@ -1282,12 +1372,34 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	}
 	break;
 
-	case WM_LBUTTONDOWN:
+	case WM_RBUTTONDOWN:
+	{
 		++drawcount;
+
 		RECT r;
 		GetClientRect(hWnd, &r);
 		InvalidateRect(hWnd, &r, false);
 		break;
+	}
+
+
+	case WM_LBUTTONDOWN:
+	{
+		OnClick(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+
+		RECT r;
+		GetClientRect(hWnd, &r);
+		InvalidateRect(hWnd, &r, false);
+		break;
+	}
+
+	case WM_TIMER:
+	{
+		drawCaret = !drawCaret;
+		InvalidateRect(hWnd, nullptr, false);
+		break;
+	}
+
 	case WM_CREATE:
 	{
 		InitD2DResource(hWnd);
